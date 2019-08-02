@@ -329,42 +329,6 @@ namespace IfcDoc
 					}
 				}
 			}
-
-			// bool ConceptTemplateA([Parameter1, ...]);
-			// {
-			//    // for loading reference value:
-			//    .ldfld [AttributeRule]
-			//    .ldelem [Index] // for collection, get element by index
-			//    .castclass [EntityRule] for entity, cast to expected type; 
-			//    // for object graphs, repeat the above instructions to load value
-			//    
-			//    for loading constant:
-			//    .ldstr 'value'
-			//
-			//    for comparison functions:
-			//    .cge
-			//
-			//    for logical aggregations, repeat each item, pushing 2 elements on stack, then run comparison
-			//    .or
-			//
-			//    return the boolean value on the stack
-			//    .ret;
-			// }
-
-			// bool[] ConceptA()
-			// {
-			//    bool[] result = new bool[2];
-			// 
-			//    if parameters are specified, call for each template rule; otherwise call just once
-			//    result[0] = ConceptTemplateA([Parameter1, ...]); // TemplateRule#1
-			//    result[1] = ConceptTemplateA([Parameter1, ...]); // TemplateRule#2
-			// 
-			//    return result;
-			// }
-
-			// compile a method for the template definition, where parameters are passed to the template
-
-
 #if true
 			if (includeconcept && concept.Definition != null)
 			{

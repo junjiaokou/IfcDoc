@@ -37,13 +37,7 @@ namespace BuildingSmart.IFC.IfcGeometryResource
 		{
 			this.Segments = new List<IfcCompositeCurveSegment>(__Segments);
 			this.SelfIntersect = __SelfIntersect;
-		}
-	
-		public new IfcInteger NSegments { get { return new IfcInteger(); } }
-	
-		public new IfcLogical ClosedCurve { get { return new IfcLogical(); } }
-	
-	
+		}	
 	}
 	
 }

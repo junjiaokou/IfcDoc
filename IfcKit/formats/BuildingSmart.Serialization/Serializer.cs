@@ -304,7 +304,10 @@ namespace BuildingSmart.Serialization
 				if (type.IsEnum)
 				{
 					int i = (int)value;
-					if (i == 0)
+                    //此处若value值VOIT，在ifcSIUnitName中的VOLT = 28,但是i为27
+                    //所以Enum中的第一个总是不显示。
+                    i++;
+                    if (i == 0)
 						return null;
 				}
 				else if (type.IsValueType)
