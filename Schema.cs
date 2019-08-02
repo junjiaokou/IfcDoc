@@ -24,7 +24,7 @@ namespace IfcDoc.Schema
 		Inverse = 2,
 		All = 3,
 	}
-
+    //寇俊娇
 	/// <summary>
 	/// A context-bound object that can query relationships or pull content dynamically from broker
 	/// </summary>
