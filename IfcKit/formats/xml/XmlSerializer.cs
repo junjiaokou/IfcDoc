@@ -24,6 +24,8 @@ namespace BuildingSmart.Serialization.Xml
     public class XmlSerializer : Serializer
     {
         protected ObjectStore _ObjectStore = new ObjectStore();
+        Dictionary<object, string> Element = new Dictionary<object, string>();//存储物理实体
+        Dictionary<object, string> Relation = new Dictionary<object, string>();//存储关系实体
         string _NameSpace = "";
         string _SchemaLocation = "";
 
@@ -623,12 +625,18 @@ namespace BuildingSmart.Serialization.Xml
             endT = DateTime.Now;
             ts = endT - startT;
             Console.WriteLine("第一次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            //输出IFC的头部分和Ifcproject
+            //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
+            EntityClassify();//将所需实体进行分类存储
+            WriteElement(stream,root,new HashSet<string>(), false, ref nextID, Relation);//写实体
+           
             // pass 2: write to file -- clear save map; retain ID map
-            startT = DateTime.Now;
-            writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
-            endT = DateTime.Now;
-            ts = endT - startT;
-            Console.WriteLine("第二次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            //    startT = DateTime.Now;
+            //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
+            //endT = DateTime.Now;
+            //ts = endT - startT;
+            //Console.WriteLine("第二次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+
         }
         internal protected void writeFirstPassForIds(object root, HashSet<string> propertiesToIgnore, ref int nextID)
         {
@@ -685,7 +693,81 @@ namespace BuildingSmart.Serialization.Xml
         protected virtual void WriteEntityEnd(StreamWriter writer, ref int indent)
         {
         }
+        //只写空间结构实体
+        private void WriteElement(Stream stream, object root,HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID,Dictionary<object, string> Element)
+        {
+           int indent = 0;
+           StreamWriter writer = new StreamWriter(stream);
+           indent += 2;
+           bool rootdelim = false;
+           Queue<object> queue = new Queue<object>();
 
+           this.WriteHeader(writer);//写head部分
+            // 需要增加缩进
+            indent += 2;
+            // 写ifc文件的头部分"type"=head
+            // writer header info
+            headerData h = new headerData();
+            h.time_stamp = DateTime.UtcNow;
+            h.preprocessor_version = this.Preprocessor;
+            h.originating_system = this.Application;
+            this.WriteEntity(writer, ref indent, h, propertiesToIgnore, queue, isIdPass, ref nextID, "", ""); ;
+            // header少了逗号
+            this.WriteCollectionDelimiter(writer, 0);
+
+            //写root Ifcproject实体中包含了基本单位和产出软件
+            Type t = root.GetType();
+            string typeName = TypeSerializeName(t);
+
+
+            this.WriteStartElementEntity(writer, ref indent, typeName);
+            this.WriteStartAttribute(writer, indent, "xmlns:xsi");
+            writer.Write("http://www.w3.org/2001/XMLSchema-instance");
+            this.WriteEndAttribute(writer);
+            this.WriteAttributeDelimiter(writer);
+            if (!string.IsNullOrEmpty(_NameSpace))
+            {
+                this.WriteStartAttribute(writer, indent, "xmlns");
+                writer.Write(_NameSpace);
+                this.WriteEndAttribute(writer);
+                this.WriteAttributeDelimiter(writer);
+            }
+            if (!string.IsNullOrEmpty(_SchemaLocation))
+            {
+                this.WriteStartAttribute(writer, indent, "xsi:schemaLocation");
+                writer.Write(_SchemaLocation);
+                this.WriteEndAttribute(writer);
+                this.WriteAttributeDelimiter(writer);
+            }
+            //将ifcproject单独写
+            bool closeelem = this.WriteEntityAttributes(writer, ref indent, root, propertiesToIgnore, queue, isIdPass, ref nextID);
+            this.WriteCloseElementEntity(writer, ref indent);
+            this.WriteRootDelimeter(writer);//写}和，
+            //此处需要更改，
+            if (!closeelem)
+            {
+                if (queue.Count == 0)
+                {
+                    this.WriteCloseElementAttribute(writer, ref indent);
+                    this.WriteFooter(writer);
+                    writer.Flush();
+                    return;
+                }
+                this.WriteOpenElement(writer);
+            }
+
+            foreach (KeyValuePair<object, string> en in Element)
+            {
+                if (rootdelim)
+                {
+                    this.WriteRootDelimeter(writer);
+                }
+                object sp = en.Key;
+                rootdelim=this.WriteEntity(writer, ref indent, sp, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            }
+            this.WriteFooter(writer);
+            writer.Flush();
+        }
         private void writeRootObject(Stream stream, object root, HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID)
         {
             int indent = 0;
@@ -763,7 +845,7 @@ namespace BuildingSmart.Serialization.Xml
                     rootdelim = this.WriteEntity(writer, ref indent, ent, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");//注意：其输出改为boolean类型，可能需要加判断
                 }
             }
-            //this.WriteEndElementEntity(writer, ref indent, typeName);
+            this.WriteEndElementEntity(writer, ref indent, typeName);
             this.WriteFooter(writer);
             writer.Flush();
         }
@@ -777,7 +859,7 @@ namespace BuildingSmart.Serialization.Xml
 
             if (o == null)
                 return false;
-
+            
             Type t = o.GetType();
             string typeName = TypeSerializeName(t);
             string name = string.IsNullOrEmpty(elementName) ? typeName : elementName;
@@ -800,10 +882,10 @@ namespace BuildingSmart.Serialization.Xml
                 }
             }
             //不输出几何信息！ by jifeng
-            //if (t.Name == "IfcShapeRepresentation" || t.Name == "IfcPolyline" || t.Name == "IfcShapeRepresentation" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" ||
+            //if (t.Name != "IfcGeometricRepresentationSubContext")
+            //if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation"||
             //    t.Name == "IfcProductDefinitionShape" || t.Name == "IfcGeometricRepresentationSubContext" || t.Name == "IfcFacetedBrep" || t.Name == "IfcClosedShell" || t.Name == "IfcFace" ||
-            //    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcProductDefinitionShape" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
-            ////  || t.Name == "IfcRelSpaceBoundary" || t.Name == "" || t.Name == "" || t.Name == ""
+            //    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
             //{
             //    this.WriteStartElementEntity(writer, ref indent, t.Name);
             //    WriteIndent(writer, indent);
@@ -947,22 +1029,22 @@ namespace BuildingSmart.Serialization.Xml
         {
             Type t = o.GetType(), stringType = typeof(String);
 
-            string id = _ObjectStore.EncounteredId(o);
-            if (!string.IsNullOrEmpty(id))
+            string id = _ObjectStore.EncounteredId(o);//获取其遇到的实体的id
+            if (!string.IsNullOrEmpty(id))//如果id不为空说明是之前出现了就写href
             {
-                _ObjectStore.MarkReferenced(o, id);
-                this.WriteReference(writer, indent, id);
+                _ObjectStore.MarkReferenced(o, id);//将该object id存储至参考实体
+                this.WriteReference(writer, indent, id);//写参考href
                 return false;
             }
             // give it an ID if needed (first pass)
             // mark as saved
-            id = _ObjectStore.IdentifyId(o, isIdPass, ref nextID);
+            id = _ObjectStore.IdentifyId(o, isIdPass, ref nextID);//第一遍次函数目的是加id，第二遍是判断是否是参考实体（由idpasss控制），若是则会返回其id,否则返回空
 
             if (string.IsNullOrEmpty(id))
-                _ObjectStore.MarkEncountered(o, ref nextID);
+                _ObjectStore.MarkEncountered(o, ref nextID);//不是参考实体，给一个id
             else
             {
-                this.WriteIdentifier(writer, indent, id);
+                this.WriteIdentifier(writer, indent, id);//写id
                 _ObjectStore.MarkEncountered(o, id);
             }
 
@@ -1164,6 +1246,13 @@ namespace BuildingSmart.Serialization.Xml
                 foreach (Tuple<PropertyInfo, DataMemberAttribute, object> tuple in elementFields) // derived attributes are null
                 {
                     PropertyInfo f = tuple.Item1;
+                    //去除物理实体的几何表达
+                    bool bt = BasetypeIsSE(o.GetType());
+                    if (bt == true && f.Name == "Representation")
+                    {
+                        continue;
+                    }
+                    //-------------------------------
                     Type ft = f.PropertyType;
                     bool isvaluelist = IsValueCollection(ft);
                     bool isvaluelistlist = ft.IsGenericType && // e.g. IfcTriangulatedFaceSet.Normals
@@ -1419,6 +1508,7 @@ namespace BuildingSmart.Serialization.Xml
                 //	}
                 //	break;
                 //}
+                //判断该集合的值是否都为空
                 bool IsAllNull = false;
                 foreach (object e in list)
                 {
@@ -1528,7 +1618,7 @@ namespace BuildingSmart.Serialization.Xml
                 if (!IsAllNull)
                 { this.WriteCollectionEnd(writer, ref indent); }
             } // otherwise if not collection...
-            else if (ft.IsInterface && v is ValueType)
+            else if (ft.IsInterface && v is ValueType)//Type 元数据中函数有IsInterface
             {
                 this.WriteValueWrapper(writer, ref indent, v);
             }
@@ -1564,7 +1654,7 @@ namespace BuildingSmart.Serialization.Xml
                     {
                         this.WriteType(writer, indent, vt.Name);
                     }
-                    bool closeelem = this.WriteEntityAttributes(writer, ref indent, v, new HashSet<string>(), queue, isIdPass, ref nextID);
+                    bool closeelem = this.WriteEntityAttributes(writer, ref indent, v, new HashSet<string>(), queue, isIdPass, ref nextID);//为什么不直接调用WriteEntity
 
                     if (!closeelem)
                     {
@@ -1736,13 +1826,81 @@ namespace BuildingSmart.Serialization.Xml
                 }
             }
         }
+        //获取空间结构实体
+        public Dictionary<object, string> EntityClassify()
+        {
+            //object Element = new object();
+            foreach (KeyValuePair<object, string> en in _ObjectStore.IdMap)
+            {
+                string id = en.Value;
+                object e = en.Key;
+                Type t = e.GetType();
+                //获取其基本属性
+                //if (t.Name == "IfcRelAggregates" || t.Name == "IfcRelContainedInSpatialStructure")
+                //{
+                //    Element[e] = id;//存储关系实体
+                //}
+                //if (pt.Name == "IfcSpatialStructureElement" || pt.Name == "IfcBuildingElement"||pt.BaseType.Name== "IfcBuildingElement")//错误原因：Type为空时没有Name
+                //{
+                //    Element[e] = id;
+                //}
+                if (BasetypeIsSE(t))
+                {
+                    Element[e] = id;
+                }
+                else if (t.BaseType.Name == "IfcSpatialStructureElement")
+                {
+                    Element[e] = id;
+                }
 
+            }
+            return Element;
+        }
+        //判断其BaseType的类型，保留ifcbuildingelement的实体----------太耗时，只找前两层
+        //public bool Basetype(Type t)
+        //{
+        //    while (t!= null)
+        //    {
+        //        if (t.GetType().Name == "IfcBuildingElement")
+        //        {
+        //            return true;
+        //        }
+        //        else
+        //            Basetype(t.BaseType);
+        //    }
+        //    return false;
+        //}
+        public bool BasetypeIsSE(Type t)
+        {
+            int i = 0;
+            while (t != null)
+            {
+                if (i > 3)
+                {
+                    return false;
+                }
+                else
+                {
+                    if (t.Name == "IfcElement")
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        t=t.BaseType; //BaseType(t)//若是递归则无法计数
+                        i++;
+                    }
+                }
+
+            }
+            return false;
+        }
         protected internal class ObjectStore
         {
             internal bool UseUniqueIdReferences { get; set; } = true;
-            private Dictionary<object, string> IdMap = new Dictionary<object, string>();
-            private Dictionary<object, string> EncounteredObjects = new Dictionary<object, string>();
-            private Dictionary<object, string> ReferencedObjects = new Dictionary<object, string>();
+            public Dictionary<object, string> IdMap = new Dictionary<object, string>();
+            public Dictionary<object, string> EncounteredObjects = new Dictionary<object, string>();
+            public Dictionary<object, string> ReferencedObjects = new Dictionary<object, string>();
 
             private string validId(string str)
             {

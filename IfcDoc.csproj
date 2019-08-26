@@ -37,7 +37,9 @@
     <UpgradeBackupLocation>
     </UpgradeBackupLocation>
     <OldToolsVersion>3.5</OldToolsVersion>
-    <PublishUrl>publish\</PublishUrl>
+    <IsWebBootstrapper>false</IsWebBootstrapper>
+    <TargetFrameworkProfile />
+    <PublishUrl>D:\Publish\IfcToJson\Setup3\</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Disk</InstallFrom>
     <UpdateEnabled>false</UpdateEnabled>
@@ -49,10 +51,8 @@
     <MapFileExtensions>true</MapFileExtensions>
     <ApplicationRevision>0</ApplicationRevision>
     <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
-    <IsWebBootstrapper>false</IsWebBootstrapper>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
-    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -168,10 +168,6 @@
     <ProjectReference Include="IfcKit\formats\spf\BuildingSmart.Serialization.Step.csproj">
       <Project>{9dc23719-6569-4f9a-a676-aad97d1d233f}</Project>
       <Name>BuildingSmart.Serialization.Step</Name>
-    </ProjectReference>
-    <ProjectReference Include="IfcKit\formats\ttl\BuildingSmart.Serialization.Turtle.csproj">
-      <Project>{fa52d32f-d526-4f88-855e-282829ff3c9f}</Project>
-      <Name>BuildingSmart.Serialization.Turtle</Name>
     </ProjectReference>
     <ProjectReference Include="IfcKit\formats\xml\BuildingSmart.Serialization.Xml.csproj">
       <Project>{55cd2497-80a6-49b9-880b-ab0743b7deca}</Project>

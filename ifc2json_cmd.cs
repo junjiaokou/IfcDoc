@@ -17,7 +17,7 @@ using IfcDoc.Schema.DOC;
 using BuildingSmart.Serialization;
 using BuildingSmart.Serialization.Json;
 using BuildingSmart.Serialization.Step;
-using BuildingSmart.Serialization.Turtle;
+
 using BuildingSmart.Serialization.Xml;
 
 #if MDB
@@ -510,12 +510,15 @@ namespace IfcDoc
 
                     Serializer formatSource = null;
                     formatSource = new StepSerializer(typeProject);
-
+                    endT = DateTime.Now;
+                    ts = endT - startT;
+                    Console.WriteLine("初始化工作时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+                    startT = endT;
                     project = formatSource.ReadObject(streamInput);
 
                     endT = DateTime.Now;
                     ts = endT - startT;
-                    Console.WriteLine("初始化转换工作时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+                    Console.WriteLine("转换为step工作时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
 
 
                     Serializer formatTarget = null;
