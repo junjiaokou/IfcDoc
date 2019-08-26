@@ -45,7 +45,7 @@ namespace BuildingSmart.Serialization.Json
 
         protected override void WriteCloseElementAttribute(StreamWriter writer, ref int indent)
         {
-            // do   nothing
+            //   do   nothing
         }
 
         protected override void WriteEntityStart(StreamWriter writer, ref int indent)
