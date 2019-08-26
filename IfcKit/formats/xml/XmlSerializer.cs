@@ -696,6 +696,7 @@ namespace BuildingSmart.Serialization.Xml
         //只写空间结构实体
         private void WriteElement(Stream stream, object root,HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID,Dictionary<object, string> Element)
         {
+            //kongjianshiti
            int indent = 0;
            StreamWriter writer = new StreamWriter(stream);
            indent += 2;
