@@ -627,11 +627,14 @@ namespace BuildingSmart.Serialization.Xml
             Console.WriteLine("第一次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
             //输出IFC的头部分和Ifcproject
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
+            startT = DateTime.Now;
             EntityClassify();//将所需实体进行分类存储
-            WriteElement(stream,root,new HashSet<string>(), false, ref nextID, Relation);//写实体
-           
+            WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
+            endT = DateTime.Now;
+            ts = endT - startT;
+            Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
             // pass 2: write to file -- clear save map; retain ID map
-            //    startT = DateTime.Now;
+           
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
             //endT = DateTime.Now;
             //ts = endT - startT;
@@ -694,7 +697,7 @@ namespace BuildingSmart.Serialization.Xml
         {
         }
         //只写空间结构实体
-        private void WriteElement(Stream stream, object root,HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID,Dictionary<object, string> Element)
+        private void WriteElement(Stream stream, object root,HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID)
         {
             //测试webhook
            int indent = 0;
@@ -744,7 +747,7 @@ namespace BuildingSmart.Serialization.Xml
             bool closeelem = this.WriteEntityAttributes(writer, ref indent, root, propertiesToIgnore, queue, isIdPass, ref nextID);
             this.WriteCloseElementEntity(writer, ref indent);
             this.WriteRootDelimeter(writer);//写}和，
-            //此处需要更改，
+            //此处需要更改，若只有ifcproject则此表达错误
             if (!closeelem)
             {
                 if (queue.Count == 0)
@@ -756,15 +759,31 @@ namespace BuildingSmart.Serialization.Xml
                 }
                 this.WriteOpenElement(writer);
             }
-
-            foreach (KeyValuePair<object, string> en in Element)
+            //输出其构件与空间之间的关系
+            foreach (KeyValuePair<object, string> en in Relation)
             {
                 if (rootdelim)
                 {
-                    this.WriteRootDelimeter(writer);
+                    this.WriteRootDelimeter(writer);//写,在每个实体输出完后
+
                 }
+                object rel = en.Key;
+                rootdelim = this.WriteEntity(writer, ref indent,rel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            }
+            //构件（物理实体）应该都包含在关系实体中,用此来测试关系实体是否找全
+            foreach (KeyValuePair<object, string> en in Element)
+            {
                 object sp = en.Key;
-                rootdelim=this.WriteEntity(writer, ref indent, sp, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+                if (string.IsNullOrEmpty(_ObjectStore.EncounteredId(sp)))
+                {
+                    if (rootdelim)
+                    {
+                        this.WriteRootDelimeter(writer);
+                    }
+                   
+                    rootdelim = this.WriteEntity(writer, ref indent, sp, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+                    Console.WriteLine("有单独的物理实体输出");
+                }
             }
             this.WriteFooter(writer);
             writer.Flush();
@@ -897,13 +916,14 @@ namespace BuildingSmart.Serialization.Xml
             //}
             this.WriteStartElementEntity(writer, ref indent, name);
             bool close = this.WriteEntityAttributes(writer, ref indent, o, propertiesToIgnore, queue, isIdPass, ref nextID);
+            //"}"在json文件中两者的表达是一样的都是写}.而在xml文件中不同
             if (close)
             {
-                this.WriteEndElementEntity(writer, ref indent, name);//"}
+                this.WriteEndElementEntity(writer, ref indent, name);//</name>
             }
             else
             {
-                this.WriteCloseElementEntity(writer, ref indent); //"}"
+                this.WriteCloseElementEntity(writer, ref indent); ///>
 
             }
             return true;
@@ -1010,8 +1030,6 @@ namespace BuildingSmart.Serialization.Xml
         protected virtual void WriteAttributeTerminator(StreamWriter writer)
         {
         }
-
-
 
         protected static bool IsValueCollection(Type t)
         {
@@ -1247,7 +1265,7 @@ namespace BuildingSmart.Serialization.Xml
                 foreach (Tuple<PropertyInfo, DataMemberAttribute, object> tuple in elementFields) // derived attributes are null
                 {
                     PropertyInfo f = tuple.Item1;
-                    //去除物理实体的几何表达
+                    //去除物理实体的几何表达保留了空间的几何表示，空间的几何表示是以边界生成实体其表达还是很大的
                     bool bt = BasetypeIsSE(o.GetType());
                     if (bt == true && f.Name == "Representation")
                     {
@@ -1828,7 +1846,7 @@ namespace BuildingSmart.Serialization.Xml
             }
         }
         //获取空间结构实体
-        public Dictionary<object, string> EntityClassify()
+        public void  EntityClassify()
         {
             //object Element = new object();
             foreach (KeyValuePair<object, string> en in _ObjectStore.IdMap)
@@ -1845,17 +1863,23 @@ namespace BuildingSmart.Serialization.Xml
                 //{
                 //    Element[e] = id;
                 //}
-                if (BasetypeIsSE(t))
+                //其存储结构
+                //IfcRelVoidsElement和IfcRelFillsElement 描述开洞实体，其父类是IfcRelConnects
+                //IfcRelReferencedInSpatialStructure引用关系；幕墙的时候需要，但若只是需要其幕墙的位置，可以不考虑该关系
+                if (t.Name == "IfcRelAggregates" || t.Name == "IfcRelContainedInSpatialStructure" || t.Name == "IfcRelVoidsElement" || t.Name == "IfcRelFillsElement")
+                {
+                    Relation[e] = id;
+                }
+                else if (BasetypeIsSE(t))
                 {
                     Element[e] = id;
                 }
                 else if (t.BaseType.Name == "IfcSpatialStructureElement")
                 {
-                    Element[e] = id;
+                    Element[e] = id;  //将空间实体和物理实体存储至Element中
                 }
 
             }
-            return Element;
         }
         //判断其BaseType的类型，保留ifcbuildingelement的实体----------太耗时，只找前两层
         //public bool Basetype(Type t)

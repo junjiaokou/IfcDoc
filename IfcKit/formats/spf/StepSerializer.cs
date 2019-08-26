@@ -81,29 +81,11 @@ namespace BuildingSmart.Serialization.Step
             // first pass: read header to verify schema and model view definitions...
 
             //// second pass: read instances
-            //ReadContent(stream, instances, ParseScope.DataInstances);
-
-            //// third pass: read fields
-            //ReadContent(stream, instances, ParseScope.DataFields);
-
-            //object root = null;
-            //instances.TryGetValue(0, out root);
-            //return root;
-            // first pass: read header to verify schema and model view definitions...
-            DateTime startT, endT;
-            // second pass: read instances
-            startT = DateTime.Now; TimeSpan ts;
             ReadContent(stream, instances, ParseScope.DataInstances);
-            endT = DateTime.Now;
-            ts = endT - startT;
-            Console.WriteLine("第一次Step Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
 
             // third pass: read fields
-            startT = DateTime.Now;
             ReadContent(stream, instances, ParseScope.DataFields);
-            endT = DateTime.Now;
-            ts = endT - startT;
-            Console.WriteLine("第二次Step Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+
             object root = null;
             instances.TryGetValue(0, out root);
             return root;
