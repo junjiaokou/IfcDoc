@@ -629,11 +629,11 @@ namespace BuildingSmart.Serialization.Xml
             Console.WriteLine("第一次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
             //输出IFC的头部分和Ifcproject
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
-            startT = DateTime.Now;
+            //startT = DateTime.Now;
             WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
-            endT = DateTime.Now;
-            ts = endT - startT;
-            Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            //endT = DateTime.Now;
+            //ts = endT - startT;
+            //Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
             // pass 2: write to file -- clear save map; retain ID map
            
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
@@ -646,6 +646,7 @@ namespace BuildingSmart.Serialization.Xml
         {
             int indent = 0;
             StreamWriter writer = new StreamWriter(Stream.Null);
+            //StreamWriter writer = new StreamWriter(stream);
             Queue<object> queue = new Queue<object>();
             queue.Enqueue(root);
             while (queue.Count > 0)
@@ -913,18 +914,17 @@ namespace BuildingSmart.Serialization.Xml
             }
             EntityClassify(o);//将所需实体进行分类存储
             //不输出几何信息！ by jifeng
-            //if (t.Name != "IfcGeometricRepresentationSubContext")
-            //if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation"||
-            //    t.Name == "IfcProductDefinitionShape" || t.Name == "IfcGeometricRepresentationSubContext" || t.Name == "IfcFacetedBrep" || t.Name == "IfcClosedShell" || t.Name == "IfcFace" ||
-            //    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
-            //{
-            //    this.WriteStartElementEntity(writer, ref indent, t.Name);
-            //    WriteIndent(writer, indent);
-            //    writer.WriteLine("\"REM\": \"此属性由VISOM取消\"");
-            //    //                bool close = this.WriteEntityAttributes(writer, ref indent, o, saved, idmap, queue, ref nextID);
-            //    this.WriteEndElementEntity(writer, ref indent, t.Name);
-            //    return true;
-            //}
+                if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation" ||
+                    t.Name == "IfcProductDefinitionShape" || t.Name == "IfcGeometricRepresentationSubContext" || t.Name == "IfcFacetedBrep" || t.Name == "IfcClosedShell" || t.Name == "IfcFace" ||
+                    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
+                {
+                    this.WriteStartElementEntity(writer, ref indent, t.Name);
+                    WriteIndent(writer, indent);
+                    writer.WriteLine("\"REM\": \"此属性由VISOM取消\"");
+                    //                bool close = this.WriteEntityAttributes(writer, ref indent, o, saved, idmap, queue, ref nextID);
+                    this.WriteEndElementEntity(writer, ref indent, t.Name);
+                    return true;
+                }
             this.WriteStartElementEntity(writer, ref indent, name);
             bool close = this.WriteEntityAttributes(writer, ref indent, o, propertiesToIgnore, queue, isIdPass, ref nextID);
             //"}"在json文件中两者的表达是一样的都是写}.而在xml文件中不同
@@ -1276,7 +1276,11 @@ namespace BuildingSmart.Serialization.Xml
                 foreach (Tuple<PropertyInfo, DataMemberAttribute, object> tuple in elementFields) // derived attributes are null
                 {
                     PropertyInfo f = tuple.Item1;
-                    //去除物理实体的几何表达保留了空间的几何表示
+                    //去除物理实体的几何表达保留了空间的几何表示，不全
+                    //if (o.GetType().Name == "IfcProject" && f.Name == "RepresentationContexts"|| o.GetType().Name == "IfcMaterialDefinitionRepresentation" && f.Name == "Representations")
+                    //{
+                    //    continue;
+                    //}
                     int bt = Basetype(o.GetType());
                     if((bt == 1 && f.Name == "Representation")||(bt == 2 && f.Name == "RepresentationMaps"))
                     //if (f.Name == "Representation")
