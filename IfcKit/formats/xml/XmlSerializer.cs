@@ -24,8 +24,10 @@ namespace BuildingSmart.Serialization.Xml
     public class XmlSerializer : Serializer
     {
         protected ObjectStore _ObjectStore = new ObjectStore();
-        Dictionary<object, string> Element = new Dictionary<object, string>();//存储物理实体
-        Dictionary<object, string> Relation = new Dictionary<object, string>();//存储关系实体
+        HashSet<object> Element = new HashSet<object>();
+        HashSet<object> SpatialRelation = new HashSet<object>();
+        HashSet<object> PropertyRelation = new HashSet<object>();
+
         string _NameSpace = "";
         string _SchemaLocation = "";
 
@@ -620,7 +622,7 @@ namespace BuildingSmart.Serialization.Xml
             DateTime startT, endT;
             TimeSpan ts;
             startT = DateTime.Now;
-
+            //第一遍遍历将所有的实体进行存储
             writeFirstPassForIds(root, new HashSet<string>(), ref nextID);
             endT = DateTime.Now;
             ts = endT - startT;
@@ -628,7 +630,6 @@ namespace BuildingSmart.Serialization.Xml
             //输出IFC的头部分和Ifcproject
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
             startT = DateTime.Now;
-            EntityClassify();//将所需实体进行分类存储
             WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
             endT = DateTime.Now;
             ts = endT - startT;
@@ -759,32 +760,41 @@ namespace BuildingSmart.Serialization.Xml
                 }
                 this.WriteOpenElement(writer);
             }
+
             //输出其构件与空间之间的关系
-            foreach (KeyValuePair<object, string> en in Relation)
+            foreach (object srel in SpatialRelation)
             {
                 if (rootdelim)
                 {
                     this.WriteRootDelimeter(writer);//写,在每个实体输出完后
 
                 }
-                object rel = en.Key;
-                rootdelim = this.WriteEntity(writer, ref indent,rel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+                rootdelim = this.WriteEntity(writer, ref indent,srel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
             }
-            //构件（物理实体）应该都包含在关系实体中,用此来测试关系实体是否找全
-            foreach (KeyValuePair<object, string> en in Element)
+            foreach (object prel in PropertyRelation)
             {
-                object sp = en.Key;
-                if (string.IsNullOrEmpty(_ObjectStore.EncounteredId(sp)))
+                if (rootdelim)
+                {
+                    this.WriteRootDelimeter(writer);//写,在每个实体输出完后
+
+                }
+                rootdelim = this.WriteEntity(writer, ref indent, prel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            }
+            //构件（物理实体）应该都包含在关系实体中,用此来测试关系实体是否找全(先输出物理实体能减少输出文件的空格)
+            foreach (object en in Element)
+            {
+                if (string.IsNullOrEmpty(_ObjectStore.EncounteredId(en)))
                 {
                     if (rootdelim)
                     {
                         this.WriteRootDelimeter(writer);
                     }
-                   
-                    rootdelim = this.WriteEntity(writer, ref indent, sp, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
-                    Console.WriteLine("有单独的物理实体输出");
+
+                    rootdelim = this.WriteEntity(writer, ref indent, en, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+                    //Console.WriteLine("有单独的物理实体输出");
                 }
             }
+
             this.WriteFooter(writer);
             writer.Flush();
         }
@@ -901,6 +911,7 @@ namespace BuildingSmart.Serialization.Xml
                     }
                 }
             }
+            EntityClassify(o);//将所需实体进行分类存储
             //不输出几何信息！ by jifeng
             //if (t.Name != "IfcGeometricRepresentationSubContext")
             //if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation"||
@@ -1265,9 +1276,10 @@ namespace BuildingSmart.Serialization.Xml
                 foreach (Tuple<PropertyInfo, DataMemberAttribute, object> tuple in elementFields) // derived attributes are null
                 {
                     PropertyInfo f = tuple.Item1;
-                    //去除物理实体的几何表达保留了空间的几何表示，空间的几何表示是以边界生成实体其表达还是很大的
-                    bool bt = BasetypeIsSE(o.GetType());
-                    if (bt == true && f.Name == "Representation")
+                    //去除物理实体的几何表达保留了空间的几何表示
+                    int bt = Basetype(o.GetType());
+                    if((bt == 1 && f.Name == "Representation")||(bt == 2 && f.Name == "RepresentationMaps"))
+                    //if (f.Name == "Representation")
                     {
                         continue;
                     }
@@ -1846,79 +1858,66 @@ namespace BuildingSmart.Serialization.Xml
             }
         }
         //获取空间结构实体
-        public void  EntityClassify()
+        public void  EntityClassify(object e)
         {
-            //object Element = new object();
-            foreach (KeyValuePair<object, string> en in _ObjectStore.IdMap)
-            {
-                string id = en.Value;
-                object e = en.Key;
                 Type t = e.GetType();
-                //获取其基本属性
-                //if (t.Name == "IfcRelAggregates" || t.Name == "IfcRelContainedInSpatialStructure")
-                //{
-                //    Element[e] = id;//存储关系实体
-                //}
-                //if (pt.Name == "IfcSpatialStructureElement" || pt.Name == "IfcBuildingElement"||pt.BaseType.Name== "IfcBuildingElement")//错误原因：Type为空时没有Name
-                //{
-                //    Element[e] = id;
-                //}
+
                 //其存储结构
+                //分类存储方便之后处理
                 //IfcRelVoidsElement和IfcRelFillsElement 描述开洞实体，其父类是IfcRelConnects
                 //IfcRelReferencedInSpatialStructure引用关系；幕墙的时候需要，但若只是需要其幕墙的位置，可以不考虑该关系
                 if (t.Name == "IfcRelAggregates" || t.Name == "IfcRelContainedInSpatialStructure" || t.Name == "IfcRelVoidsElement" || t.Name == "IfcRelFillsElement")
                 {
-                    Relation[e] = id;
+                    SpatialRelation.Add(e);
+                    
                 }
-                else if (BasetypeIsSE(t))
+                //其属性集有IfcRelDefinesByProperties和IfcRelDefinesByType两个关系实体连接在IFC标准中这些关系的的基类会发生变化
+                else if (t.Name == "IfcRelDefinesByProperties"|| t.Name == "IfcRelDefinesByType")
                 {
-                    Element[e] = id;
+                    PropertyRelation.Add(e);                  
+                }
+                else if (Basetype(t)==1)
+                {
+                    Element.Add(e);
+                   
                 }
                 else if (t.BaseType.Name == "IfcSpatialStructureElement")
                 {
-                    Element[e] = id;  //将空间实体和物理实体存储至Element中
+                    Element.Add(e);  //将空间实体和物理实体存储至Element中
                 }
 
             }
-        }
-        //判断其BaseType的类型，保留ifcbuildingelement的实体----------太耗时，只找前两层
-        //public bool Basetype(Type t)
-        //{
-        //    while (t!= null)
-        //    {
-        //        if (t.GetType().Name == "IfcBuildingElement")
-        //        {
-        //            return true;
-        //        }
-        //        else
-        //            Basetype(t.BaseType);
-        //    }
-        //    return false;
-        //}
-        public bool BasetypeIsSE(Type t)
+        //判断物体为IfcElement时输出1，为IfcElementType输出2，否则为0
+        public int Basetype(Type t)
         {
             int i = 0;
             while (t != null)
             {
                 if (i > 3)
                 {
-                    return false;
+                    return 0;
                 }
                 else
                 {
                     if (t.Name == "IfcElement")
                     {
-                        return true;
+                        return 1;
+                    }
+                    //IfcElementType的基类为IfcTypeProduct,因为IfcDoorStyle、IfcWindowStyle中也包含了几何信息
+                    //直接判断其父类IfcTypeProduct，那么IfcSpatialElementType的几何信息也去掉了
+                    //判断这里表达的几何信息是否和IfcSpatialElement中表达的是同一种
+                    else if (t.Name == "IfcTypeProduct")
+                    {
+                        return 2;
                     }
                     else
                     {
-                        t=t.BaseType; //BaseType(t)//若是递归则无法计数
+                        t = t.BaseType; //BaseType(t)//若是递归则无法计数
                         i++;
                     }
                 }
-
             }
-            return false;
+            return 0;
         }
         protected internal class ObjectStore
         {
