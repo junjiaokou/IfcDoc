@@ -211,14 +211,15 @@ namespace BuildingSmart.Serialization
 		/// <param name="indent">The number of levels to indent.</param>
 		protected void WriteIndent(StreamWriter writer, int indent)
 		{
+            //去除json文件中不显示空格
 			// current implementation uses tabs -- could be configurable to use spaces
 			// tabs are used for efficient replacement when generating marked up example with hyperlinks
 
-			for (int i = 0; i < indent; i++)
-			{
-				//writer.Write(" "); // previous setting
-				writer.Write("\t");
-			}
+			//for (int i = 0; i < indent; i++)
+			//{
+			//	//writer.Write(" "); // previous setting
+			//	writer.Write("\t");
+			//}
 		}
 
 		/// <summary>

@@ -24,7 +24,7 @@ namespace BuildingSmart.Serialization.Xml
     public class XmlSerializer : Serializer
     {
         protected ObjectStore _ObjectStore = new ObjectStore();
-        HashSet<object> Element = new HashSet<object>();
+        HashSet<object> Element = new HashSet<object>();//保存构件及其空间结构信息（注：其空间关系以及属性关系在其中包含（反向属性））
         HashSet<object> SpatialRelation = new HashSet<object>();
         HashSet<object> PropertyRelation = new HashSet<object>();
 
@@ -879,6 +879,7 @@ namespace BuildingSmart.Serialization.Xml
             this.WriteFooter(writer);
             writer.Flush();
         }
+
         private Boolean WriteEntity(StreamWriter writer, ref int indent, object o, HashSet<string> propertiesToIgnore, Queue<object> queue, bool isIdPass, ref int nextID, string elementName, string elementTypeName)
         {
             // sanity check
@@ -889,7 +890,7 @@ namespace BuildingSmart.Serialization.Xml
 
             if (o == null)
                 return false;
-            
+
             Type t = o.GetType();
             string typeName = TypeSerializeName(t);
             string name = string.IsNullOrEmpty(elementName) ? typeName : elementName;
@@ -912,19 +913,23 @@ namespace BuildingSmart.Serialization.Xml
                 }
             }
             EntityClassify(o);//将所需实体进行分类存储
-            //不输出几何信息！ by jifeng
-            //if (t.Name != "IfcGeometricRepresentationSubContext")
-            //if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation"||
-            //    t.Name == "IfcProductDefinitionShape" || t.Name == "IfcGeometricRepresentationSubContext" || t.Name == "IfcFacetedBrep" || t.Name == "IfcClosedShell" || t.Name == "IfcFace" ||
-            //    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
-            //{
-            //    this.WriteStartElementEntity(writer, ref indent, t.Name);
-            //    WriteIndent(writer, indent);
-            //    writer.WriteLine("\"REM\": \"此属性由VISOM取消\"");
-            //    //                bool close = this.WriteEntityAttributes(writer, ref indent, o, saved, idmap, queue, ref nextID);
-            //    this.WriteEndElementEntity(writer, ref indent, t.Name);
-            //    return true;
-            //}
+            //第一次遍历树时去除几何表达
+            //第二次输出保存的实体节点时不通过此方法剔除
+            if (isIdPass)
+            {
+                if (t.Name == "IfcPolyline" || t.Name == "IfcExtrudedAreaSolid" || t.Name == "IfcIShapeProfileDef" || t.Name == "IfcShapeRepresentation" ||
+                    t.Name == "IfcProductDefinitionShape" || t.Name == "IfcGeometricRepresentationSubContext" || t.Name == "IfcFacetedBrep" || t.Name == "IfcClosedShell" || t.Name == "IfcFace" ||
+                    t.Name == "IfcFaceOuterBound" || t.Name == "IfcPolyLoop" || t.Name == "IfcCompositeCurveSegment" || t.Name == "IfcRelSpaceBoundary")
+                {
+                    this.WriteStartElementEntity(writer, ref indent, t.Name);
+                    WriteIndent(writer, indent);
+                    writer.WriteLine("\"REM\": \"此属性由VISOM取消\"");
+                    //                bool close = this.WriteEntityAttributes(writer, ref indent, o, saved, idmap, queue, ref nextID);
+                    this.WriteEndElementEntity(writer, ref indent, t.Name);
+                    return true;
+                }
+            }
+ 
             this.WriteStartElementEntity(writer, ref indent, name);
             bool close = this.WriteEntityAttributes(writer, ref indent, o, propertiesToIgnore, queue, isIdPass, ref nextID);
             //"}"在json文件中两者的表达是一样的都是写}.而在xml文件中不同
@@ -1068,16 +1073,20 @@ namespace BuildingSmart.Serialization.Xml
             }
             // give it an ID if needed (first pass)
             // mark as saved
-            id = _ObjectStore.IdentifyId(o, isIdPass, ref nextID);//第一遍次函数目的是加id，第二遍是判断是否是参考实体（由idpasss控制），若是则会返回其id,否则返回空
+            //id = _ObjectStore.IdentifyId(o, isIdPass, ref nextID);//第一遍次函数目的是加id，第二遍是判断是否是参考实体（由idpasss控制），若是则会返回其id,否则返回空
 
-            if (string.IsNullOrEmpty(id))
-                _ObjectStore.MarkEncountered(o, ref nextID);//不是参考实体，给一个id
-            else
-            {
-                this.WriteIdentifier(writer, indent, id);//写id
-                _ObjectStore.MarkEncountered(o, id);
-            }
-
+            //if (string.IsNullOrEmpty(id))
+            //    _ObjectStore.MarkEncountered(o, ref nextID);//不是参考实体，给一个id
+            //else
+            //{
+            //    this.WriteIdentifier(writer, indent, id);//写id
+            //    _ObjectStore.MarkEncountered(o, id);
+            //}
+            //每个实体都写id,无论是不是参考实体
+             id = _ObjectStore.IdentifyId(o, true, ref nextID);
+             this.WriteIdentifier(writer, indent, id);//写id
+             _ObjectStore.MarkEncountered(o, id);
+           
             bool previousattribute = false;
 
             // write fields as attributes
@@ -1277,6 +1286,7 @@ namespace BuildingSmart.Serialization.Xml
                 {
                     PropertyInfo f = tuple.Item1;
                     //去除物理实体的几何表达保留了空间的几何表示
+                    //主要用于第二次输出的时候剔除
                     int bt = Basetype(o.GetType());
                     if((bt == 1 && f.Name == "Representation")||(bt == 2 && f.Name == "RepresentationMaps"))
                     //if (f.Name == "Representation")
