@@ -321,5 +321,6 @@ namespace BuildingSmart.Serialization
 			}
 			return value;
 		}
-	}
+
+    }
 }

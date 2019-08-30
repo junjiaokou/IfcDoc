@@ -531,6 +531,7 @@ namespace IfcDoc
                             formatTarget.WriteObject(streamTarget, project);
                         }
                     }
+                    
                 }
 
             }

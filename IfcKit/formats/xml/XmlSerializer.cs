@@ -24,10 +24,13 @@ namespace BuildingSmart.Serialization.Xml
     public class XmlSerializer : Serializer
     {
         protected ObjectStore _ObjectStore = new ObjectStore();
-        HashSet<object> Element = new HashSet<object>();//保存构件及其空间结构信息（注：其空间关系以及属性关系在其中包含（反向属性））
+        ArrayList  ProductElements = new ArrayList();//
+        public HashSet<object> Element = new HashSet<object>();//保存构件（注：其空间关系以及属性关系在其中包含（反向属性））
+        HashSet<object> SpatialElement = new HashSet<object>();//其空间结构信息
         HashSet<object> SpatialRelation = new HashSet<object>();
         HashSet<object> PropertyRelation = new HashSet<object>();
-
+       
+       
         string _NameSpace = "";
         string _SchemaLocation = "";
 
@@ -608,7 +611,7 @@ namespace BuildingSmart.Serialization.Xml
         /// </summary>
         /// <param name="stream">The stream to write.</param>
         /// <param name="root">The root object to write</param>
-        public override void WriteObject(Stream stream, object root)
+        public override void  WriteObject(Stream stream, object root)
         {
             if (stream == null)
                 throw new ArgumentNullException("stream");
@@ -627,19 +630,56 @@ namespace BuildingSmart.Serialization.Xml
             endT = DateTime.Now;
             ts = endT - startT;
             Console.WriteLine("第一次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            //获取空间结构的属性信息（先输出空间结构的，构件的位置信息会用到此）
+            foreach (object e in SpatialElement)
+            {
+                //空间结构还有几何表达信息（此处还未添加）
+                //创建一对象
+                ProductElement pe = new ProductElement();
+                HashSet<object> RelProperties = new HashSet<object>();//该构件的属性信息所在的实体
+                HashSet<object> TypeProperties = new HashSet<object>();//该构件的类型属性信息
+                HashSet<object> SpatialProperties = new HashSet<object>();//该构件的空间信息
+                Getproperties(e, RelProperties, TypeProperties);
+                GetSpatialProperty(e, SpatialProperties);
+                pe.SetBasicProperty(e);
+                pe.SetRelProperties(RelProperties);
+                pe.SetTypeProperties(TypeProperties);
+                pe.SetSpatialProperties(SpatialProperties);
+                if (e.GetType().Name == "IfcSpace")
+                {
+                    object SpatialShape = null;
+                    GetShape(e, out SpatialShape);
+                    pe.SetSpaceShape(SpatialShape);
+                }
+                ProductElements.Add(pe);
+            }
+            Console.WriteLine("结束");
+ 
+            foreach (object e in Element)
+            {
+                //空间结构还有几何表达信息（此处还未添加）
+                //创建一对象
+                ProductElement pe = new ProductElement();
+                HashSet<object> RelProperties = new HashSet<object>();//该构件的属性信息所在的实体
+                HashSet<object> TypeProperties = new HashSet<object>();//该构件的类型属性信息
+                HashSet<object> SpatialProperties = new HashSet<object>();//该构件的空间信息
+                Getproperties(e, RelProperties, TypeProperties);
+                GetSpatialProperty(e, SpatialProperties);
+                pe.SetBasicProperty(e);
+                pe.SetRelProperties(RelProperties);
+                pe.SetTypeProperties(TypeProperties);
+                pe.SetSpatialProperties(SpatialProperties);
+                ProductElements.Add(pe);                
+            }
+            Console.WriteLine("结束");
             //输出IFC的头部分和Ifcproject
             //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
-            startT = DateTime.Now;
-            WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
-            endT = DateTime.Now;
-            ts = endT - startT;
-            Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
-            // pass 2: write to file -- clear save map; retain ID map
-           
-            //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
+            //startT = DateTime.Now;
+            //WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
             //endT = DateTime.Now;
             //ts = endT - startT;
-            //Console.WriteLine("第二次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            //Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+
 
         }
         internal protected void writeFirstPassForIds(object root, HashSet<string> propertiesToIgnore, ref int nextID)
@@ -1815,6 +1855,120 @@ namespace BuildingSmart.Serialization.Xml
             return str.Replace("\n", "\\n").Replace("\r", "").Replace("\\", "\\\\");
         }
 
+        //获取属性集，//其属性在构件的属性集IsDefinedBy
+        public void Getproperties(object o,HashSet<object> RelProperties,HashSet<object> TypeProperties)
+        {
+            Type t = o.GetType();
+            PropertyInfo f = t.GetProperty("IsDefinedBy");
+            object v = f.GetValue(o);//获取其属性值
+            Type ft = f.PropertyType;
+            if (IsEntityCollection(ft))
+            {
+                IEnumerable list = (IEnumerable)v;     
+                foreach (object invobj in list)
+                {
+                    //IsDefinedBy:SET OF IfcRelDefines FOR RelatedObjects;
+                    Type type = invobj.GetType();
+                    if (type.Name == "IfcRelDefinesByProperties")//属性信息
+                    {
+                        RelProperties.Add(invobj);
+                    }
+                    else if (type.Name == "IfcRelDefinesByType")//类型的属性信息
+                    {
+                        TypeProperties.Add(invobj);
+                    }
+                    else
+                    {
+                        Console.WriteLine(t.Name+"该属性还有其他实体类型表达"+type.Name);//输出该构件名称
+                    }
+                }
+            }
+        }
+        //获取构件实体的位置信息（该空间所属楼层）
+        public void GetSpatialProperty(object o, HashSet<object> SpatialProperties)
+        {
+            Type t = o.GetType();
+            PropertyInfo f;
+            //Decomposes: 	SET [0:1] OF IfcRelDecomposes FOR RelatedObjects;ifcspace实体的空间位置所在属性
+            //ContainedInStructure: SET[0:1] OF IfcRelContainedInSpatialStructure FOR RelatedElements;物理构件的空间位置所在的属性
+            if (t.BaseType.Name == "IfcSpatialStructureElement")
+            {
+                f = t.GetProperty("Decomposes");
+            }
+            else
+            {
+                f = t.GetProperty("ContainedInStructure");
+            }
+            object v = f.GetValue(o);//获取其属性值
+            Type ft = f.PropertyType;
+            if (IsEntityCollection(ft))
+            {
+                IEnumerable list = (IEnumerable)v;
+                foreach (object invobj in list)
+                {
+                    SpatialProperties.Add(invobj);
+                }
+            }
+        }
+        //获取IfcSpace的几何形状表达
+        public void GetShape(object o, out object SpatialShape)
+        {
+            //Representation	 : 	OPTIONAL IfcProductRepresentation;
+            Type t = o.GetType();
+            PropertyInfo f = t.GetProperty("Representation");
+            object v = f.GetValue(o);//获取其属性值
+            //IsDefinedBy:SET OF IfcRelDefines FOR RelatedObjects;
+            SpatialShape=v;
+
+        }
+        protected internal class ProductElement
+        {
+            public object BasicProperty;//该构件基本信息所在实体 
+            public HashSet<object> RelProperties = new HashSet<object>();//该构件的属性信息所在的实体
+            public HashSet<object> TypeProperties = new HashSet<object>();//该构件的类型属性信息
+            public HashSet<object> SpatialProperties = new HashSet<object>();//该构件的空间信息
+            public object SpaceShape;//除IfcSpace实体外，其余构件的几何信息都为空
+            public void SetBasicProperty(object _BasicProperty)
+            {
+                this.BasicProperty = _BasicProperty;
+            }
+            public object GetBasicProperty()
+            {
+                return BasicProperty;
+            }
+            public void SetSpaceShape(object _SpaceShape)
+            {
+                this.SpaceShape = _SpaceShape;
+            }
+            public object GetSpaceShape()
+            {
+                return SpaceShape;
+            }
+            public void SetRelProperties(HashSet<object> _RelProperties)
+            {
+                this.RelProperties = _RelProperties;
+            }
+            public HashSet<object> GetRelProperties()
+            {
+                return RelProperties;
+            }
+            public void SetTypeProperties(HashSet<object> _TypeProperties)
+            {
+                this.TypeProperties = _TypeProperties;
+            }
+            public HashSet<object> GetTypeProperties()
+            {
+                return TypeProperties;
+            }
+            public void SetSpatialProperties(HashSet<object> _SpatialProperties)
+            {
+                this.SpatialProperties = _SpatialProperties;
+            }
+            public HashSet<object> GetSpatialProperties()
+            {
+                return SpatialProperties;
+            }
+        }
         protected internal class QueuedObjects
         {
             private Dictionary<string, QueuedObject> queued = new Dictionary<string, QueuedObject>();
@@ -1870,7 +2024,7 @@ namespace BuildingSmart.Serialization.Xml
         //获取空间结构实体
         public void  EntityClassify(object e)
         {
-                Type t = e.GetType();
+             Type t = e.GetType();
 
                 //其存储结构
                 //分类存储方便之后处理
@@ -1893,7 +2047,7 @@ namespace BuildingSmart.Serialization.Xml
                 }
                 else if (t.BaseType.Name == "IfcSpatialStructureElement")
                 {
-                    Element.Add(e);  //将空间实体和物理实体存储至Element中
+                    SpatialElement.Add(e);  //将空间实体和物理实体存储至Element中
                 }
 
             }
