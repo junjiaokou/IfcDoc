@@ -1,10 +1,8 @@
 ﻿[Bb]in/
-[Oo]bj/
 *.suo
 *.user
 /.vs
 
-/obj/x86/Debug
 /bin/x64/Debug
 /IfcKit/schemas/IFC4X1/obj/Debug
 /IfcKit/formats/xml/obj/Debug
