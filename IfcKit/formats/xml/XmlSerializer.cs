@@ -18,19 +18,22 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Xml;
+using Newtonsoft.Json;
 
 namespace BuildingSmart.Serialization.Xml
 {
     public class XmlSerializer : Serializer
     {
+        protected internal class ProductProperties
+        { 
+            public string Guid { get; set; }//构件的id
+            public Dictionary<string, Dictionary<string, string>> properties { get; set ; }
+        }
         protected ObjectStore _ObjectStore = new ObjectStore();
-        ArrayList  ProductElements = new ArrayList();//
+        ArrayList  products= new ArrayList();//存储构件与其对应的属性实例
         public HashSet<object> Element = new HashSet<object>();//保存构件（注：其空间关系以及属性关系在其中包含（反向属性））
-        HashSet<object> SpatialElement = new HashSet<object>();//其空间结构信息
-        HashSet<object> SpatialRelation = new HashSet<object>();
-        HashSet<object> PropertyRelation = new HashSet<object>();
-       
-       
+        HashSet<object> SpatialElement = new HashSet<object>();//其空间结构实体
+              
         string _NameSpace = "";
         string _SchemaLocation = "";
 
@@ -611,13 +614,34 @@ namespace BuildingSmart.Serialization.Xml
         /// </summary>
         /// <param name="stream">The stream to write.</param>
         /// <param name="root">The root object to write</param>
-        public override void  WriteObject(Stream stream, object root)
+
+        public override void WriteElementProperties(Stream stream,object root)
         {
             if (stream == null)
                 throw new ArgumentNullException("stream");
 
             if (root == null)
                 throw new ArgumentNullException("root");
+            StreamWriter writer = new StreamWriter(stream);
+            WriteObject(stream,root);
+            this.WriteHeader(writer);//写头部ifc:]
+            int count=0;
+            foreach (ProductProperties e in products)
+            {
+                count++;
+                string json = JsonConvert.SerializeObject(e, Newtonsoft.Json.Formatting.Indented);
+                writer.WriteLine(json);
+                if(count!= products.Count)
+                {
+                    writer.WriteLine(",");//最后一个对象不输出，
+                }
+               
+            }
+            this.WriteFooter(writer);
+            writer.Flush();
+        }
+        public override void  WriteObject(Stream stream, object root)
+        {
 
             // pass 1: (first time ever encountering for serialization) -- determine which entities require IDs -- use a null stream
             int nextID = 0;
@@ -634,53 +658,274 @@ namespace BuildingSmart.Serialization.Xml
             foreach (object e in SpatialElement)
             {
                 //空间结构还有几何表达信息（此处还未添加）
-                //创建一对象
-                ProductElement pe = new ProductElement();
+                //创建一对 
+                ProductProperties p = new ProductProperties();
+                Dictionary<string, Dictionary<string, string>> entityProperties = new Dictionary<string, Dictionary<string, string>>();
                 HashSet<object> RelProperties = new HashSet<object>();//该构件的属性信息所在的实体
                 HashSet<object> TypeProperties = new HashSet<object>();//该构件的类型属性信息
                 HashSet<object> SpatialProperties = new HashSet<object>();//该构件的空间信息
+                Dictionary<string, string> BasicProperties = new Dictionary<string, string>();
                 Getproperties(e, RelProperties, TypeProperties);
                 GetSpatialProperty(e, SpatialProperties);
-                pe.SetBasicProperty(e);
-                pe.SetRelProperties(RelProperties);
-                pe.SetTypeProperties(TypeProperties);
-                pe.SetSpatialProperties(SpatialProperties);
+                GetEntityDirectFields(e, BasicProperties);
+                string guid;
+                if (BasicProperties.TryGetValue("GlobalId",out guid))
+                {
+                    p.Guid = guid;
+                }
+                //Console.WriteLine("此处正常");
                 if (e.GetType().Name == "IfcSpace")
                 {
                     object SpatialShape = null;
-                    GetShape(e, out SpatialShape);
-                    pe.SetSpaceShape(SpatialShape);
+                    GetShape(e, out SpatialShape);                 
+                    string stroey = GetStoreyName(GetStoreyEntity(e));
+                    BasicProperties.Add("Stroey", stroey);
                 }
-                ProductElements.Add(pe);
+                entityProperties.Add("基本属性", BasicProperties);
+                p.properties=entityProperties ;
+                products.Add(p);
             }
             Console.WriteLine("结束");
- 
+            //物理构件
             foreach (object e in Element)
             {
                 //空间结构还有几何表达信息（此处还未添加）
-                //创建一对象
-                ProductElement pe = new ProductElement();
+                //创建一对 
+                ProductProperties p = new ProductProperties();
+                Dictionary<string, Dictionary<string, string>> entityProperties = new Dictionary<string, Dictionary<string, string>>();
                 HashSet<object> RelProperties = new HashSet<object>();//该构件的属性信息所在的实体
                 HashSet<object> TypeProperties = new HashSet<object>();//该构件的类型属性信息
                 HashSet<object> SpatialProperties = new HashSet<object>();//该构件的空间信息
+                Dictionary<string, string> BasicProperties = new Dictionary<string, string>();
                 Getproperties(e, RelProperties, TypeProperties);
                 GetSpatialProperty(e, SpatialProperties);
-                pe.SetBasicProperty(e);
-                pe.SetRelProperties(RelProperties);
-                pe.SetTypeProperties(TypeProperties);
-                pe.SetSpatialProperties(SpatialProperties);
-                ProductElements.Add(pe);                
+                GetEntityDirectFields(e, BasicProperties);
+                string guid;
+                if (BasicProperties.TryGetValue("GlobalId", out guid))
+                {
+                    p.Guid = guid;
+                }
+                string stroey = GetStoreyName(GetStoreyEntity(e));
+                BasicProperties.Add("Stroey", stroey);
+                entityProperties.Add("基本属性", BasicProperties);
+                p.properties = entityProperties;
+                products.Add(p);
             }
-            Console.WriteLine("结束");
-            //输出IFC的头部分和Ifcproject
-            //writeRootObject(stream, root, new HashSet<string>(), false, ref nextID);
-            //startT = DateTime.Now;
-            //WriteElement(stream, root, new HashSet<string>(), false, ref nextID);//写实体
-            //endT = DateTime.Now;
-            //ts = endT - startT;
-            //Console.WriteLine("输出实体时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+        }
+        protected object GetStoreyEntity(object o)
+        {
+            object RelatingStructure=null;
+            HashSet<object> SpatialProperties = new HashSet<object>();
+            //只获取ifcspce的楼层信息
+            GetSpatialProperty(o, SpatialProperties);
+            if (SpatialProperties.Count == 1)
+            {
+                foreach (object e in SpatialProperties)//如果是构件的空间位置是个 IfcRelContainedInSpatialStructure实体
+                {
+                    Type t = e.GetType();
+                    if (t.Name == "IfcRelContainedInSpatialStructure")
+                    {
+                        //获取其属性RelatingStructure: IfcSpatialStructureElement;
+                        PropertyInfo f = t.GetProperty("RelatingStructure");
+                        RelatingStructure = f.GetValue(e);
+                    }
+                    else if (t.Name == "IfcRelAggregates")//ifcspace的空间位置是IfcRelAggregates实体
+                    {
+                        //RelatingObject	 : 	IfcObjectDefinition;
+                        PropertyInfo f = t.GetProperty("RelatingObject");
+                        RelatingStructure = f.GetValue(e);
+                    }
+                    else
+                    {
+                        Console.WriteLine(o.GetType().Name + "该构件的空间位置还会用其他实体表示");
+                    }
+                }
+            }
+            else if (SpatialProperties.Count == 0)
+            {
+                Console.WriteLine(o.GetType().Name + "该构件的空间位置信息出错");
+            }
+            else
+            {
+                Console.WriteLine(o.GetType().Name + "与该构件有关的实体从属关系有多个");
+            }
+            return RelatingStructure;//其实体应该是buildingstroey
+        }
+        protected string GetStoreyName(object e)
+        {
+            string str = "GlobalId";
+            string value = "";
+            if (e != null)
+            {             //显示楼层信息在楼层实体的，在楼层的基本信息中查找其name
+                Dictionary<string, string> DirectFields = new Dictionary<string, string>();
+                GetEntityDirectFields(e, DirectFields);
+                if (!DirectFields.TryGetValue(str, out value))
+                {
+                    Console.WriteLine("该楼层不存在");
+                }
+                return value;
+            }
+            return value;
+    
+        }
+        protected void GetEntityDirectFields(object e, Dictionary<string, string> Specific)
+        {
+            // = new Dictionary<string, string>();
+            //只获取基本属性实体的直接属性
+            Type t = e.GetType(), stringType = typeof(String);
+            //实体名称
+            Specific.Add("IfcEntity", t.Name);
+            IList<PropertyInfo> fields = this.GetFieldsAll(t);
+            foreach (PropertyInfo f in fields)
+            {
+                //获取属性对应的值
+                if (f != null) // derived fields are null
+                {
+                    DocXsdFormatEnum? xsdformat = this.GetXsdFormat(f);
+                    //if (xsdformat == DocXsdFormatEnum.Hidden)
+                    //	continue;
+                    Type ft = f.PropertyType, valueType = null;
+                    DataMemberAttribute dataMemberAttribute = null;
+                    object value = GetSerializeValue(e, f, out dataMemberAttribute, out valueType);
+                    if (value == null)
+                        continue;
+                    if (dataMemberAttribute != null && (xsdformat == null || xsdformat == DocXsdFormatEnum.Attribute))
+                    {
+                        // direct field
+                        bool isvaluelist = IsValueCollection(ft);
+                        bool isvaluelistlist = ft.IsGenericType && // e.g. IfcTriangulatedFaceSet.Normals
+                            typeof(System.Collections.IEnumerable).IsAssignableFrom(ft.GetGenericTypeDefinition()) &&
+                            IsValueCollection(ft.GetGenericArguments()[0]);
+                        if (isvaluelistlist || isvaluelist || ft.IsValueType || ft == stringType)
+                        {
+                            string key = f.Name;
+                            string v = "";
+                            if (ft == stringType && string.IsNullOrEmpty(value.ToString()))
+                                continue;
+                            if (isvaluelistlist)
+                            {
+                                ft = ft.GetGenericArguments()[0].GetGenericArguments()[0];
+                                PropertyInfo fieldValue = ft.GetProperty("Value");
+                                if (fieldValue != null)
+                                {
+                                    System.Collections.IList list = (System.Collections.IList)value;
+                                    for (int i = 0; i < list.Count; i++)
+                                    {
+                                        System.Collections.IList listInner = (System.Collections.IList)list[i];
+                                        for (int j = 0; j < listInner.Count; j++)
+                                        {
+                                            object elem = listInner[j];
+                                            if (elem != null) // should never be null, but be safe
+                                            {
+                                                elem = fieldValue.GetValue(elem);
+                                                string encodedvalue = System.Security.SecurityElement.Escape(elem.ToString());
+                                                // 对Json字符串中回车符处理
+                                                //writer.Write(encodedvalue);
+                                                v = this.strToJson(encodedvalue);
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("XXX Error serializing ValueListlist" + e.ToString());
+                                }
+                            }
+                            else if (isvaluelist)
+                            {
+                                ft = ft.GetGenericArguments()[0];
+                                PropertyInfo fieldValue = ft.GetProperty("Value");
 
+                                IEnumerable list = (IEnumerable)value;
+                                foreach (object o in list)
+                                {
+                                    if (e != null) // should never be null, but be safe
+                                    {
+                                        object elem = e;
+                                        if (fieldValue != null)
+                                        {
+                                            elem = fieldValue.GetValue(e);
+                                        }
 
+                                        if (elem is byte[])
+                                        {
+                                            // IfcPixelTexture.Pixels
+                                            v = SerializeBytes((byte[])elem);
+                                            Console.WriteLine("I dont konw");
+                                        }
+                                        else
+                                        {
+                                            string encodedvalue = System.Security.SecurityElement.Escape(elem.ToString());
+                                            // 对Json字符串中回车符处理
+                                            //writer.Write(encodedvalue);
+                                            v = this.strToJson(encodedvalue);
+                                        }
+                                    }
+                                }
+
+                            }
+                            else
+                            {
+                                if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(Nullable<>))
+                                {
+                                    // special case for Nullable types
+                                    ft = ft.GetGenericArguments()[0];
+                                }
+
+                                Type typewrap = null;
+                                while (ft.IsValueType && !ft.IsPrimitive)
+                                {
+                                    PropertyInfo fieldValue = ft.GetProperty("Value");
+                                    if (fieldValue != null)
+                                    {
+                                        value = fieldValue.GetValue(value);
+                                        if (typewrap == null)
+                                        {
+                                            typewrap = ft;
+                                        }
+                                        ft = fieldValue.PropertyType;
+                                    }
+                                    else
+                                    {
+                                        break;
+                                    }
+                                }
+
+                                if (ft.IsEnum || ft == typeof(bool))
+                                {
+                                    value = value.ToString().ToLowerInvariant();
+                                }
+
+                                if (value is IList)
+                                {
+                                    // IfcCompoundPlaneAngleMeasure
+                                    IList list = (IList)value;
+                                    for (int i = 0; i < list.Count; i++)
+                                    {
+                                        object elem = list[i];
+                                        if (elem != null) // should never be null, but be safe
+                                        {
+                                            string encodedvalue = System.Security.SecurityElement.Escape(elem.ToString());
+                                            // 对Json字符串中回车符处理
+                                            //writer.Write(encodedvalue);
+                                            v = this.strToJson(encodedvalue);
+                                        }
+                                    }
+                                }
+                                else if (value != null)
+                                {
+                                    string encodedvalue = System.Security.SecurityElement.Escape(value.ToString());
+                                    // 对Json字符串中回车符处理
+                                    //writer.Write(encodedvalue);
+                                    v = this.strToJson(encodedvalue);
+                                }
+                            }
+                            Specific.Add(key, v);
+                        }
+                    }
+
+                }
+            }
         }
         internal protected void writeFirstPassForIds(object root, HashSet<string> propertiesToIgnore, ref int nextID)
         {
@@ -801,42 +1046,42 @@ namespace BuildingSmart.Serialization.Xml
                 this.WriteOpenElement(writer);
             }
 
-            //输出其构件与空间之间的关系
-            foreach (object srel in SpatialRelation)
-            {
-                if (rootdelim)
-                {
-                    this.WriteRootDelimeter(writer);//写,在每个实体输出完后
+            ////输出其构件与空间之间的关系
+            //foreach (object srel in SpatialRelation)
+            //{
+            //    if (rootdelim)
+            //    {
+            //        this.WriteRootDelimeter(writer);//写,在每个实体输出完后
 
-                }
-                rootdelim = this.WriteEntity(writer, ref indent,srel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
-            }
-            foreach (object prel in PropertyRelation)
-            {
-                if (rootdelim)
-                {
-                    this.WriteRootDelimeter(writer);//写,在每个实体输出完后
+            //    }
+            //    rootdelim = this.WriteEntity(writer, ref indent,srel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            //}
+            //foreach (object prel in PropertyRelation)
+            //{
+            //    if (rootdelim)
+            //    {
+            //        this.WriteRootDelimeter(writer);//写,在每个实体输出完后
 
-                }
-                rootdelim = this.WriteEntity(writer, ref indent, prel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
-            }
-            //构件（物理实体）应该都包含在关系实体中,用此来测试关系实体是否找全(先输出物理实体能减少输出文件的空格)
-            foreach (object en in Element)
-            {
-                if (string.IsNullOrEmpty(_ObjectStore.EncounteredId(en)))
-                {
-                    if (rootdelim)
-                    {
-                        this.WriteRootDelimeter(writer);
-                    }
+            //    }
+            //    rootdelim = this.WriteEntity(writer, ref indent, prel, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            //}
+            ////构件（物理实体）应该都包含在关系实体中,用此来测试关系实体是否找全(先输出物理实体能减少输出文件的空格)
+            //foreach (object en in Element)
+            //{
+            //    if (string.IsNullOrEmpty(_ObjectStore.EncounteredId(en)))
+            //    {
+            //        if (rootdelim)
+            //        {
+            //            this.WriteRootDelimeter(writer);
+            //        }
 
-                    rootdelim = this.WriteEntity(writer, ref indent, en, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
-                    //Console.WriteLine("有单独的物理实体输出");
-                }
-            }
+            //        rootdelim = this.WriteEntity(writer, ref indent, en, propertiesToIgnore, queue, isIdPass, ref nextID, "", "");
+            //        //Console.WriteLine("有单独的物理实体输出");
+            //    }
+            //}
 
-            this.WriteFooter(writer);
-            writer.Flush();
+            //this.WriteFooter(writer);
+            //writer.Flush();
         }
         private void writeRootObject(Stream stream, object root, HashSet<string> propertiesToIgnore, bool isIdPass, ref int nextID)
         {
@@ -1889,6 +2134,7 @@ namespace BuildingSmart.Serialization.Xml
         {
             Type t = o.GetType();
             PropertyInfo f;
+            object v;
             //Decomposes: 	SET [0:1] OF IfcRelDecomposes FOR RelatedObjects;ifcspace实体的空间位置所在属性
             //ContainedInStructure: SET[0:1] OF IfcRelContainedInSpatialStructure FOR RelatedElements;物理构件的空间位置所在的属性
             if (t.BaseType.Name == "IfcSpatialStructureElement")
@@ -1898,8 +2144,8 @@ namespace BuildingSmart.Serialization.Xml
             else
             {
                 f = t.GetProperty("ContainedInStructure");
-            }
-            object v = f.GetValue(o);//获取其属性值
+            }        
+             v= f.GetValue(o);//获取其属性值
             Type ft = f.PropertyType;
             if (IsEntityCollection(ft))
             {
@@ -1907,6 +2153,21 @@ namespace BuildingSmart.Serialization.Xml
                 foreach (object invobj in list)
                 {
                     SpatialProperties.Add(invobj);
+                }
+            }
+            //有个别实体类型例如ifcplate （不会直接与空间产生联系例如开洞实体）
+            if (SpatialProperties.Count == 0)
+            {
+                f = t.GetProperty("Decomposes");
+                v = f.GetValue(o);//获取其属性值
+                ft = f.PropertyType;
+                if (IsEntityCollection(ft))
+                {
+                    IEnumerable list = (IEnumerable)v;
+                    foreach (object invobj in list)
+                    {
+                        SpatialProperties.Add(invobj);
+                    }
                 }
             }
         }
@@ -1969,6 +2230,7 @@ namespace BuildingSmart.Serialization.Xml
                 return SpatialProperties;
             }
         }
+
         protected internal class QueuedObjects
         {
             private Dictionary<string, QueuedObject> queued = new Dictionary<string, QueuedObject>();
@@ -2021,36 +2283,21 @@ namespace BuildingSmart.Serialization.Xml
                 }
             }
         }
-        //获取空间结构实体
+        //获取空间结构实体和构件结构实体
         public void  EntityClassify(object e)
         {
              Type t = e.GetType();
-
-                //其存储结构
-                //分类存储方便之后处理
-                //IfcRelVoidsElement和IfcRelFillsElement 描述开洞实体，其父类是IfcRelConnects
-                //IfcRelReferencedInSpatialStructure引用关系；幕墙的时候需要，但若只是需要其幕墙的位置，可以不考虑该关系
-                if (t.Name == "IfcRelAggregates" || t.Name == "IfcRelContainedInSpatialStructure" || t.Name == "IfcRelVoidsElement" || t.Name == "IfcRelFillsElement")
-                {
-                    SpatialRelation.Add(e);
-                    
-                }
-                //其属性集有IfcRelDefinesByProperties和IfcRelDefinesByType两个关系实体连接在IFC标准中这些关系的的基类会发生变化
-                else if (t.Name == "IfcRelDefinesByProperties"|| t.Name == "IfcRelDefinesByType")
-                {
-                    PropertyRelation.Add(e);                  
-                }
-                else if (Basetype(t)==1)
-                {
-                    Element.Add(e);
+            if (Basetype(t)==1)
+            {
+                 Element.Add(e);
                    
-                }
-                else if (t.BaseType.Name == "IfcSpatialStructureElement")
-                {
-                    SpatialElement.Add(e);  //将空间实体和物理实体存储至Element中
-                }
-
             }
+            else if (t.BaseType.Name == "IfcSpatialStructureElement")
+            {
+                    SpatialElement.Add(e);  //将空间实体和物理实体存储至Element中
+             }
+
+        }
         //判断物体为IfcElement时输出1，为IfcElementType输出2，否则为0
         public int Basetype(Type t)
         {

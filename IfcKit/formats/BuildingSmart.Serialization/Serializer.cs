@@ -322,5 +322,6 @@ namespace BuildingSmart.Serialization
 			return value;
 		}
 
+        public abstract void WriteElementProperties(Stream streamTarget, object project);
     }
 }

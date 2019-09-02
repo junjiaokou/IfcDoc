@@ -528,7 +528,7 @@ namespace IfcDoc
                     {
                         using (System.IO.FileStream streamTarget = System.IO.File.OpenWrite(OutputFile))
                         {
-                            formatTarget.WriteObject(streamTarget, project);
+                            formatTarget.WriteElementProperties(streamTarget, project);
                         }
                     }
                     
