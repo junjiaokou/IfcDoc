@@ -25,8 +25,9 @@ namespace BuildingSmart.Serialization.Xml
     public class XmlSerializer : Serializer
     {
         protected internal class ProductProperties
-        { 
+        {
             public string Guid { get; set; }//构件的id
+            public bool IsBuildingStorey { get; set; }//一标志判断获取的stroey是否是楼层
             public Dictionary<string, Dictionary<string, string>> properties { get; set ; }
         }
         protected ObjectStore _ObjectStore = new ObjectStore();
@@ -654,6 +655,7 @@ namespace BuildingSmart.Serialization.Xml
             endT = DateTime.Now;
             ts = endT - startT;
             Console.WriteLine("第一次XML Dequeue时间：   {0}秒！\r\n", ts.TotalSeconds.ToString("0.00"));
+            bool flag = false;
             //获取空间结构的属性信息（先输出空间结构的，构件的位置信息会用到此）
             foreach (object e in SpatialElement)
             {
@@ -669,6 +671,7 @@ namespace BuildingSmart.Serialization.Xml
                 GetSpatialProperty(e, SpatialProperties);
                 GetEntityDirectFields(e, BasicProperties);
                 string guid;
+               
                 if (BasicProperties.TryGetValue("GlobalId",out guid))
                 {
                     p.Guid = guid;
@@ -678,11 +681,12 @@ namespace BuildingSmart.Serialization.Xml
                 {
                     object SpatialShape = null;
                     GetShape(e, out SpatialShape);                 
-                    string stroey = GetStoreyName(GetStoreyEntity(e));
+                    string stroey = GetStoreyName(GetStoreyEntity(e),out flag);
                     BasicProperties.Add("Stroey", stroey);
                 }
-                entityProperties.Add("基本属性", BasicProperties);
-                p.properties=entityProperties ;
+                entityProperties.Add("基本属性", BasicProperties);              
+                GetRelEntityProperties(RelProperties, entityProperties);//在此应该就已经将PropertiesField
+                p.properties = entityProperties;
                 products.Add(p);
             }
             Console.WriteLine("结束");
@@ -705,21 +709,40 @@ namespace BuildingSmart.Serialization.Xml
                 {
                     p.Guid = guid;
                 }
-                string stroey = GetStoreyName(GetStoreyEntity(e));
+                string stroey = GetStoreyName(GetStoreyEntity(e),out flag);
                 BasicProperties.Add("Stroey", stroey);
                 entityProperties.Add("基本属性", BasicProperties);
+                GetRelEntityProperties(RelProperties, entityProperties);//在此应该就已经将PropertiesField
                 p.properties = entityProperties;
                 products.Add(p);
             }
         }
+        //获取构件所在楼层实体
         protected object GetStoreyEntity(object o)
         {
             object RelatingStructure=null;
             HashSet<object> SpatialProperties = new HashSet<object>();
             //只获取ifcspce的楼层信息
             GetSpatialProperty(o, SpatialProperties);
-            if (SpatialProperties.Count == 1)
+            if (SpatialProperties.Count == 0)
             {
+                if (o.GetType().Name == "IfcOpeningElement")
+                {
+                    //do nothing 开洞实体无楼层信息---需要之后验证 
+                }
+                else
+                {
+                    Console.WriteLine(o.GetType().Name + "与该构件的空间信息出错");
+                }
+               
+            }
+            else 
+            {
+                if (SpatialProperties.Count > 1)
+                {
+                    //若其body有多个，返回第一个
+                    Console.WriteLine(o.GetType().Name + "与该构件有关的实体从属关系有多个");
+                }
                 foreach (object e in SpatialProperties)//如果是构件的空间位置是个 IfcRelContainedInSpatialStructure实体
                 {
                     Type t = e.GetType();
@@ -728,12 +751,14 @@ namespace BuildingSmart.Serialization.Xml
                         //获取其属性RelatingStructure: IfcSpatialStructureElement;
                         PropertyInfo f = t.GetProperty("RelatingStructure");
                         RelatingStructure = f.GetValue(e);
+                        break;
                     }
                     else if (t.Name == "IfcRelAggregates")//ifcspace的空间位置是IfcRelAggregates实体
                     {
                         //RelatingObject	 : 	IfcObjectDefinition;
                         PropertyInfo f = t.GetProperty("RelatingObject");
                         RelatingStructure = f.GetValue(e);
+                        break;
                     }
                     else
                     {
@@ -741,33 +766,32 @@ namespace BuildingSmart.Serialization.Xml
                     }
                 }
             }
-            else if (SpatialProperties.Count == 0)
-            {
-                Console.WriteLine(o.GetType().Name + "该构件的空间位置信息出错");
-            }
-            else
-            {
-                Console.WriteLine(o.GetType().Name + "与该构件有关的实体从属关系有多个");
-            }
-            return RelatingStructure;//其实体应该是buildingstroey
+            return RelatingStructure;
         }
-        protected string GetStoreyName(object e)
+        //获取构件所在的楼层实体的id
+        protected string GetStoreyName(object e,out bool IsBuildingStorey )
         {
+            IsBuildingStorey = false;
             string str = "GlobalId";
             string value = "";
             if (e != null)
             {             //显示楼层信息在楼层实体的，在楼层的基本信息中查找其name
+                if (e.GetType().Name == "IfcBuildingStorey")
+                {
+                    IsBuildingStorey = true;
+                }
                 Dictionary<string, string> DirectFields = new Dictionary<string, string>();
                 GetEntityDirectFields(e, DirectFields);
                 if (!DirectFields.TryGetValue(str, out value))
                 {
-                    Console.WriteLine("该楼层不存在");
+                    Console.WriteLine(e.GetType().Name+"该楼层不存在");
                 }
                 return value;
             }
             return value;
     
         }
+        //获取实体的直接属性
         protected void GetEntityDirectFields(object e, Dictionary<string, string> Specific)
         {
             // = new Dictionary<string, string>();
@@ -779,16 +803,34 @@ namespace BuildingSmart.Serialization.Xml
             foreach (PropertyInfo f in fields)
             {
                 //获取属性对应的值
-                if (f != null) // derived fields are null
+                string key = f.Name;
+                string v = "";
+                GetPropertyInfoValue(e, f, ref v);
+                //过滤出值""
+                if (v == "")
                 {
-                    DocXsdFormatEnum? xsdformat = this.GetXsdFormat(f);
-                    //if (xsdformat == DocXsdFormatEnum.Hidden)
-                    //	continue;
-                    Type ft = f.PropertyType, valueType = null;
-                    DataMemberAttribute dataMemberAttribute = null;
-                    object value = GetSerializeValue(e, f, out dataMemberAttribute, out valueType);
-                    if (value == null)
-                        continue;
+                    continue;
+                }
+                else
+                {
+                    Specific.Add(key, v);
+                }
+            }
+        }
+        //根据属性PropertyInfo获取其对应的值只讨论直接属性
+        protected void GetPropertyInfoValue(object e, PropertyInfo f, ref string v)
+        {
+            Type t = e.GetType(), stringType = typeof(String);
+            if (f != null) // derived fields are null
+            {
+                DocXsdFormatEnum? xsdformat = this.GetXsdFormat(f);
+                //if (xsdformat == DocXsdFormatEnum.Hidden)
+                //	continue;
+                Type ft = f.PropertyType, valueType = null;
+                DataMemberAttribute dataMemberAttribute = null;
+                object value = GetSerializeValue(e, f, out dataMemberAttribute, out valueType);
+                if (value != null)
+                {
                     if (dataMemberAttribute != null && (xsdformat == null || xsdformat == DocXsdFormatEnum.Attribute))
                     {
                         // direct field
@@ -798,10 +840,9 @@ namespace BuildingSmart.Serialization.Xml
                             IsValueCollection(ft.GetGenericArguments()[0]);
                         if (isvaluelistlist || isvaluelist || ft.IsValueType || ft == stringType)
                         {
-                            string key = f.Name;
-                            string v = "";
+                            //string key = f.Name;
                             if (ft == stringType && string.IsNullOrEmpty(value.ToString()))
-                                continue;
+                                return ;
                             if (isvaluelistlist)
                             {
                                 ft = ft.GetGenericArguments()[0].GetGenericArguments()[0];
@@ -920,11 +961,151 @@ namespace BuildingSmart.Serialization.Xml
                                     v = this.strToJson(encodedvalue);
                                 }
                             }
-                            Specific.Add(key, v);
                         }
                     }
-
                 }
+            }
+        }
+  
+        //获取IfcPropertySet集中的信息
+        protected void GetPropertySetProperties(object  propertySet, ref string name, Dictionary<string, string> PropertiesFields)
+        {
+            Type setType = propertySet.GetType();
+            if (setType.Name == "IfcPropertySet")
+            {
+                //Dictionary<string, string> DirectFields = new Dictionary<string, string>();
+                //GetEntityDirectFields(propertySet, DirectFields);//获取IfcPropertySet的直接属性信息
+                //if (!DirectFields.TryGetValue("Name", out name))//直接查找Name
+                //{
+                //    // do nothing 
+                //}
+                PropertyInfo f;Type ft=null;
+                f = setType.GetProperty("Name");
+                GetPropertyInfoValue(propertySet, f, ref name);//返回其name值
+                // HasProperties: 	SET [1:?] OF IfcProperty;
+                f = setType.GetProperty("HasProperties");
+                object properties = f.GetValue(propertySet);
+                ft = f.PropertyType;
+                if (IsEntityCollection(ft))
+                {
+                    IEnumerable list = (IEnumerable)properties;
+                    foreach (object invobj in list)
+                    {
+                        if (invobj != null)
+                        {
+                            Type type = invobj.GetType();
+                            if (type.Name == "IfcPropertySingleValue")//属性信息
+                            {
+                                //Name	 : 	IfcIdentifier;//名称此名称与其他的Name：IfcLable定义不同
+                                //NominalValue: OPTIONAL IfcValue;//对应的值信息
+                                //Unit: OPTIONAL IfcUnit;单位 给出其id 都是导出属性
+                                string key = "";
+                                string value = "";
+                                f = type.GetProperty("Name");
+                                GetPropertyInfoValue(invobj, f, ref key);
+                                f = type.GetProperty("NominalValue");//
+                                ft = f.PropertyType;
+                                object v = f.GetValue(invobj);
+                                if (ft.IsInterface && v is ValueType)
+                                {
+                                    Type vt = v.GetType();
+                                    PropertyInfo fieldValue = vt.GetProperty("Value");
+                                    while (fieldValue != null)
+                                    {
+                                        v = fieldValue.GetValue(v);
+                                        if (v != null)
+                                        {
+                                            Type wt = v.GetType();
+                                            if (wt.IsEnum || wt == typeof(bool))
+                                            {
+                                                v = v.ToString().ToLowerInvariant();
+                                            }
+
+                                            fieldValue = wt.GetProperty("Value");
+                                        }
+                                        else
+                                        {
+                                            fieldValue = null;
+                                        }
+                                    }
+                                    string encodedvalue = String.Empty;
+                                    if (v is IEnumerable && !(v is string))
+                                    {
+                                        // IfcIndexedPolyCurve.Segments
+                                        IEnumerable list1 = (IEnumerable)v;
+                                        StringBuilder sb = new StringBuilder();
+                                        foreach (object o in list1)
+                                        {
+                                            if (sb.Length > 0)
+                                            {
+                                                sb.Append(" ");
+                                            }
+
+                                            PropertyInfo fieldValueInner = o.GetType().GetProperty("Value");
+                                            if (fieldValueInner != null)
+                                            {
+                                                //...todo: recurse for multiple levels of indirection, e.g. 
+                                                object vInner = fieldValueInner.GetValue(o);
+                                                sb.Append(vInner.ToString());
+                                            }
+                                            else
+                                            {
+                                                sb.Append(o.ToString());
+                                            }
+                                        }
+
+                                        encodedvalue = sb.ToString();
+                                    }
+                                    else if (v != null)
+                                    {
+                                        encodedvalue = System.Security.SecurityElement.Escape(v.ToString());
+                                    }
+
+                                    value= encodedvalue;
+                                }
+                                PropertiesFields.Add(key, value);
+                            }
+                            else
+                            {
+                                Console.WriteLine("IfcPropertySet中还包含了实体" + type.Name);
+                            }
+                        }
+                        //IsDefinedBy:SET OF IfcRelDefines FOR RelatedObjects;
+                       
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("HasProperties属性处理出错");
+                }
+            }
+            else
+            {
+                Console.WriteLine(setType.Name + "这一类型属性集需要处理");
+            }
+        }
+        //获取实体的关系属性中属性值
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="RelProperties">关系实体</param>
+        /// <param name="name">属性集名称例如：文字</param>
+        /// <param name="PropertiesFields">属性集</param>
+        protected void GetRelEntityProperties(HashSet<object> RelProperties, Dictionary<string, Dictionary<string, string>> entityProperties)
+        {
+            //RelatingPropertyDefinition: IfcPropertySetDefinition;
+            //每个IfcRelDefinesByProperties中包含了一个IfcPropertySet实体
+            //IfcPropertySet实体解析
+            foreach (object e in RelProperties)
+            {
+                object propertySet ;
+                Type t = e.GetType();
+                PropertyInfo f = t.GetProperty("RelatingPropertyDefinition");
+                propertySet= f.GetValue(e);
+                string propertySetName="";
+                Dictionary<string, string> propertiesFields = new Dictionary<string, string>();
+                GetPropertySetProperties(propertySet, ref propertySetName, propertiesFields);
+                entityProperties.Add(propertySetName, propertiesFields);
             }
         }
         internal protected void writeFirstPassForIds(object root, HashSet<string> propertiesToIgnore, ref int nextID)
